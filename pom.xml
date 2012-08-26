@@ -797,5 +797,11 @@ THE SOFTWARE.
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>nix-build</id>
+      <build>
+        <directory>${env.out}</directory>
+      </build>
+    </profile>
   </profiles>
 </project>
