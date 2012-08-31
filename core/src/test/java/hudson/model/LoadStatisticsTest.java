@@ -40,8 +40,7 @@ import java.io.IOException;
  */
 public class LoadStatisticsTest extends TestCase {
   // TODO(corey): ignored due to nix derivation issue.
-  @Ignore
-	public void testGraph() throws IOException {
+  @Ignore @Test public void testGraph() throws IOException {
 		LoadStatistics ls = new LoadStatistics(0, 0) {
 			public int computeIdleExecutors() {
 				throw new UnsupportedOperationException();
