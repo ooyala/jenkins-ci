@@ -63,13 +63,11 @@ import hudson.model.Label;
 import hudson.model.ListView;
 import hudson.model.LoadBalancer;
 import hudson.model.ManagementLink;
-import hudson.model.ModifiableItemGroup;
 import hudson.model.NoFingerprintMatch;
 import hudson.model.OverallLoadStatistics;
 import hudson.model.Project;
 import hudson.model.RestartListener;
 import hudson.model.RootAction;
-import hudson.model.Saveable;
 import hudson.model.Slave;
 import hudson.model.TaskListener;
 import hudson.model.TopLevelItem;
@@ -223,7 +221,6 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 import org.kohsuke.stapler.Ancestor;
-import org.kohsuke.stapler.BindInterceptor;
 import org.kohsuke.stapler.HttpRedirect;
 import org.kohsuke.stapler.HttpResponse;
 import org.kohsuke.stapler.HttpResponses;
@@ -259,7 +256,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.Type;
 import java.net.BindException;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -306,7 +302,7 @@ import javax.annotation.CheckForNull;
  * @author Kohsuke Kawaguchi
  */
 @ExportedBean
-public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLevelItem>, StaplerProxy, StaplerFallback, ViewGroup, AccessControlled, DescriptorByNameOwner, ModelObjectWithContextMenu {
+public class Jenkins extends AbstractCIBase implements ModifiableTopLevelItemGroup, StaplerProxy, StaplerFallback, ViewGroup, AccessControlled, DescriptorByNameOwner, ModelObjectWithContextMenu {
     private transient final Queue queue;
 
     /**
@@ -1071,17 +1067,29 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
      *
      * @param id
      *      Either {@link Descriptor#getId()} (recommended) or the short name of a {@link Describable} subtype (for compatibility)
+     * @throws IllegalArgumentException if a short name was passed which matches multiple IDs (fail fast)
      */
+    @SuppressWarnings({"unchecked", "rawtypes"}) // too late to fix
     public Descriptor getDescriptor(String id) {
         // legacy descriptors that are reigstered manually doesn't show up in getExtensionList, so check them explicitly.
-        for( Descriptor d : Iterators.sequence(getExtensionList(Descriptor.class),DescriptorExtensionList.listLegacyInstances()) ) {
-            String name = d.getId();
-            if(name.equals(id))
+        Iterable<Descriptor> descriptors = Iterators.sequence(getExtensionList(Descriptor.class), DescriptorExtensionList.listLegacyInstances());
+        for (Descriptor d : descriptors) {
+            if (d.getId().equals(id)) {
                 return d;
-            if(name.substring(name.lastIndexOf('.')+1).equals(id))
-                return d;
+            }
         }
-        return null;
+        Descriptor candidate = null;
+        for (Descriptor d : descriptors) {
+            String name = d.getId();
+            if (name.substring(name.lastIndexOf('.') + 1).equals(id)) {
+                if (candidate == null) {
+                    candidate = d;
+                } else {
+                    throw new IllegalArgumentException(id + " is ambiguous; matches both " + name + " and " + candidate.getId());
+                }
+            }
+        }
+        return candidate;
     }
 
     /**
@@ -1364,12 +1372,15 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
     }
 
     /**
-     * Gets the list of all the projects.
-     *
-     * <p>
-     * Since {@link Project} can only show up under {@link Jenkins},
-     * no need to search recursively.
+     * Gets a list of simple top-level projects.
+     * @deprecated This method will ignore Maven and matrix projects, as well as projects inside containers such as folders.
+     * You may prefer to call {@link #getAllItems(Class)} on {@link AbstractProject},
+     * perhaps also using {@link Util#createSubList} to consider only {@link TopLevelItem}s.
+     * (That will also consider the caller's permissions.)
+     * If you really want to get just {@link Project}s at top level, ignoring permissions,
+     * you can filter the values from {@link #getItemMap} using {@link Util#createSubList}.
      */
+    @Deprecated
     public List<Project> getProjects() {
         return Util.createSubList(items.values(),Project.class);
     }
@@ -2259,7 +2270,7 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
      *      null if either such {@link Item} doesn't exist under the given full name,
      *      or it exists but it's no an instance of the given type.
      */
-    public <T extends Item> T getItemByFullName(String fullName, Class<T> type) {
+    public @CheckForNull <T extends Item> T getItemByFullName(String fullName, Class<T> type) {
         StringTokenizer tokens = new StringTokenizer(fullName,"/");
         ItemGroup parent = this;
 
@@ -2284,7 +2295,7 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
         }
     }
 
-    public Item getItemByFullName(String fullName) {
+    public @CheckForNull Item getItemByFullName(String fullName) {
         return getItemByFullName(fullName,Item.class);
     }
 
@@ -2298,24 +2309,10 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
         return User.get(name,hasPermission(ADMINISTER));
     }
 
-    /**
-     * Creates a new job.
-     *
-     * @throws IllegalArgumentException
-     *      if the project of the given name already exists.
-     */
     public synchronized TopLevelItem createProject( TopLevelItemDescriptor type, String name ) throws IOException {
         return createProject(type, name, true);
     }
 
-    /**
-     * Creates a new job.
-     * @param type Descriptor for job type
-     * @param name Name for job
-     * @param notify Whether to fire onCreated method for all ItemListeners
-     * @throws IllegalArgumentException
-     *      if a project of the give name already exists.
-     */
     public synchronized TopLevelItem createProject( TopLevelItemDescriptor type, String name, boolean notify ) throws IOException {
         return itemGroupMixIn.createProject(type,name,notify);
     }
@@ -2805,24 +2802,13 @@ public class Jenkins extends AbstractCIBase implements ModifiableItemGroup<TopLe
     }
 
     /**
-     * Creates a new job from its configuration XML. The type of the job created will be determined by
-     * what's in this XML.
      * @since 1.319
      */
     public TopLevelItem createProjectFromXML(String name, InputStream xml) throws IOException {
         return itemGroupMixIn.createProjectFromXML(name, xml);
     }
 
-    /**
-     * Copys a job.
-     *
-     * @param src
-     *      A {@link TopLevelItem} to be copied.
-     * @param name
-     *      Name of the newly created project.
-     * @return
-     *      Newly created {@link TopLevelItem}.
-     */
+
     @SuppressWarnings({"unchecked"})
     public <T extends TopLevelItem> T copy(T src, String name) throws IOException {
         return itemGroupMixIn.copy(src, name);

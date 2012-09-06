@@ -241,6 +241,21 @@ public /*transient*/ abstract class Computer extends Actionable implements Acces
     }
 
     /**
+     * If the computer was offline (either temporarily or not),
+     * this method will return the cause as a string (without user info).
+     *
+     * @return
+     *      null if the system was put offline without given a cause.
+     */
+    @Exported
+    public String getOfflineCauseReason() {
+        String newString = offlineCause.toString().replaceAll(
+                "^Disconnected by [\\w]* \\: ","");
+        return newString.toString().replaceAll(
+                "^Disconnected by [\\w]*","");
+    }
+
+    /**
      * Gets the channel that can be used to run a program on this computer.
      *
      * @return
@@ -999,6 +1014,16 @@ public /*transient*/ abstract class Computer extends Actionable implements Acces
         return HttpResponses.redirectToDot();
     }
 
+    public HttpResponse doChangeOfflineCause(@QueryParameter String offlineMessage) throws IOException, ServletException {
+        checkPermission(DISCONNECT);
+        offlineMessage = Util.fixEmptyAndTrim(offlineMessage);
+        setTemporarilyOffline(true,
+                OfflineCause.create(hudson.slaves.Messages._SlaveComputer_DisconnectedBy(
+                    Jenkins.getAuthentication().getName(),
+                    offlineMessage!=null ? " : " + offlineMessage : "")));
+        return HttpResponses.redirectToDot();
+    }
+
     public Api getApi() {
         return new Api(this);
     }
@@ -1052,9 +1077,8 @@ public /*transient*/ abstract class Computer extends Actionable implements Acces
     }
 
     protected void _doScript( StaplerRequest req, StaplerResponse rsp, String view) throws IOException, ServletException {
-        // ability to run arbitrary script is dangerous,
-        // so tie it to the admin access
-        checkPermission(Jenkins.ADMINISTER);
+        // ability to run arbitrary script is dangerous
+        checkPermission(Jenkins.RUN_SCRIPTS);
 
         String text = req.getParameter("script");
         if(text!=null) {

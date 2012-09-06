@@ -283,7 +283,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
             OldDataMonitor.report(this, "1.28");
         }
         for (Trigger t : triggers)
-            t.start(this,false);
+            t.start(this, Items.updatingByXml.get());
         if(scm==null)
             scm = new NullSCM(); // perhaps it was pointing to a plugin that no longer exists.
 
@@ -1988,7 +1988,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
         public FormValidation doCheckCustomWorkspace(@QueryParameter(value="customWorkspace.directory") String customWorkspace){
         	if(Util.fixEmptyAndTrim(customWorkspace)==null)
-        		return FormValidation.error("Custom workspace is empty");
+        		return FormValidation.error(Messages.AbstractProject_CustomWorkspaceEmpty());
         	else
         		return FormValidation.ok();
         }
